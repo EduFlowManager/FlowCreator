@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flowchart Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Arial&family=Verdana&family=Georgia&family=Times+New+Roman&family=Courier+New&family=Roboto:wght@400;500;700&family=Open+Sans:wght@400;500;700&family=Lato:wght@400;700&family=Montserrat:wght@400;500;700&family=Poppins:wght@400;500;700&family=Courier+Prime&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <style>
+        /* --- Base Styles --- */
+        :root {
+            --left-toolbar-width: 180px;
+            --top-toolbar-height: 60px;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #ffffbf;
+            margin: 0;
+            overflow: auto;
+            padding-left: var(--left-toolbar-width);
+            box-sizing: border-box;
+        }
+        *, *::before, *::after {
+             box-sizing: inherit;
+        }
+
+        #flowchart-container {
+            position: relative;
+            width: fit-content; /* Allow container to grow */
+            min-width: calc(100% - var(--left-toolbar-width)); /* Fill remaining space */
+            min-height: calc(100vh - var(--top-toolbar-height));
+            padding-top: var(--top-toolbar-height); /* Space for top toolbar */
+            cursor: default;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        #arrow-canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 5000px; height: 5000px; /* Keep large for now */
+            pointer-events: none; /* Let clicks pass through SVG by default */
+            z-index: 5;
+            overflow: visible;
+        }
+
+        /* --- Top Toolbar --- */
+        #toolbar {
+            position: fixed; top: 0; left: var(--left-toolbar-width); /* Position next to left toolbar */
+            width: calc(100% - var(--left-toolbar-width)); /* Adjust width */
+            z-index: 1001; background-color: white; padding: 0.5rem 1rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; flex-wrap: wrap;
+            gap: 0.5rem; height: var(--top-toolbar-height); align-items: center;
+        }
+        #toolbar button, #toolbar label { background-color: #3b82f6; color: white; font-weight: bold; padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; transition: background-color 150ms ease-in-out, opacity 150ms ease-in-out; cursor: pointer; border: none; }
+        #toolbar button:hover, #toolbar label:hover { background-color: #1d4ed8; }
+        #toolbar button:disabled { background-color: #9ca3af; cursor: not-allowed; opacity: 0.6; }
+        #toolbar input[type="file"] { display: none; }
+        #make-start-button { background-color: #10b981; }
+        #make-start-button:hover { background-color: #059669; }
+        #make-start-button.is-start { background-color: #ef4444; }
+        #make-start-button.is-start:hover { background-color: #dc2626; }
+
+        /* --- Left Vertical Toolbar --- */
+        #left-toolbar {
+            position: fixed;
+            left: 0;
+            top: var(--top-toolbar-height); /* Start below top toolbar */
+            width: var(--left-toolbar-width);
+            height: calc(100vh - var(--top-toolbar-height)); /* Fill remaining height */
+            background-color: #f3f4f6; /* gray-100 */
+            border-right: 1px solid #e5e7eb; /* gray-200 */
+            padding: 1rem;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+        .toolbar-section { margin-bottom: 1.5rem; }
+        .toolbar-section h3 { font-size: 0.875rem; font-weight: 600; color: #4b5563; margin-top: 0; margin-bottom: 0.75rem; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.25rem; }
+        #color-palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(28px, 1fr)); gap: 0.5rem; margin-bottom: 0.75rem; }
+        .color-swatch { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; border: 1px solid rgba(0,0,0,0.1); transition: transform 0.1s ease-in-out; }
+        .color-swatch:hover { transform: scale(1.1); }
+        #left-toolbar label { font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem; display: block; }
+        #left-toolbar input[type="color"], #left-toolbar input[type="number"], #left-toolbar select { width: 100%; padding: 0.375rem 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem; font-size: 0.875rem; }
+        #left-toolbar input[type="color"] { padding: 0.125rem; height: 34px; }
+        #left-toolbar select { height: 34px; }
+        #left-toolbar input[type="number"] { height: 34px; appearance: textfield; }
+        #text-align-buttons, #arrow-label-buttons { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+        .align-button, .label-button { flex-grow: 1; padding: 0.375rem; font-size: 0.875rem; text-align: center; border: 1px solid #d1d5db; border-radius: 0.375rem; cursor: pointer; background-color: white; color: #374151; transition: background-color 0.1s, color 0.1s; }
+        .align-button:hover, .label-button:hover { background-color: #e5e7eb; }
+        .align-button.active, .label-button.active { background-color: #3b82f6; color: white; border-color: #3b82f6; }
+
+        /* --- Boxes --- */
+        .flowchart-box { position: absolute; cursor: grab; padding: 0; border-radius: 0.5rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); min-width: 80px; min-height: 40px; width: 150px; height: 100px; color: #333; overflow: hidden; display: flex; flex-direction: column; user-select: none; background-clip: padding-box; border: 2px solid transparent; z-index: 10; background-color: white; }
+        .flowchart-box.type-text { padding: 1rem; }
+        .flowchart-box.type-file, .flowchart-box.type-link { padding: 0; justify-content: center; align-items: center; text-align: center; color: white; }
+        .flowchart-box.selected { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3); z-index: 15 !important; }
+        .flowchart-box:active { cursor: grabbing; }
+        .box-content { flex-grow: 1; outline: none; overflow-y: auto; padding-bottom: 16px; user-select: text; cursor: text; line-height: 1.4; text-align: left; -ms-overflow-style: none; scrollbar-width: none; }
+        .box-content::-webkit-scrollbar { display: none; }
+        .box-image { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .box-button-content { padding: 0.5rem 1rem; color: inherit; font-weight: 500; display: inline-block; }
+        .resize-handle { position: absolute; bottom: 0; right: 0; width: 16px; height: 16px; background-color: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 2px; cursor: nwse-resize; z-index: 11; }
+
+        /* --- Arrows --- */
+        .arrow-path { stroke: #6b7280; stroke-width: 2; fill: none; marker-end: url(#arrowhead); cursor: pointer; pointer-events: stroke; z-index: 6; transition: stroke 0.1s ease-in-out; }
+        .arrow-path.selected { stroke: #3b82f6; marker-end: url(#arrowhead-selected); z-index: 16 !important; }
+        .arrow-handle { stroke: white; stroke-width: 1; cursor: move; pointer-events: all; z-index: 20; }
+        .start-handle, .end-handle { fill: #3b82f6; }
+        .control-handle { fill: #f59e0b; }
+        .arrow-label { font-size: 18px; font-family: Georgia, serif; fill: black; text-anchor: middle; dominant-baseline: middle; pointer-events: all; cursor: pointer; user-select: none; z-index: 8; /* Above background */ }
+        .arrow-label-bg { fill: #ffffe3; stroke: #4b5563; stroke-width: 1px; rx: 4px; ry: 4px; pointer-events: none; z-index: 7; /* Behind text, above arrow path */ }
+
+        /* --- Properties Modal --- */
+        #properties-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 1.5rem 2rem; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.2); z-index: 1002; display: none; width: 90%; max-width: 400px; }
+        #properties-modal h2 { margin-top: 0; margin-bottom: 1.5rem; font-size: 1.25rem; font-weight: bold; }
+        #properties-modal label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
+        #properties-modal input[type="color"], #properties-modal input[type="url"], #properties-modal input[type="text"], #properties-modal input[type="number"], #properties-modal select, #properties-modal input[type="file"] { width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem; margin-bottom: 1rem; }
+        #properties-modal input[type="color"] { height: 40px; padding: 0.25rem; }
+        #properties-modal input[type="number"] { appearance: textfield; }
+        #properties-modal input[type="file"] { border: none; padding-left: 0; }
+        #properties-modal select { height: 42px; }
+        #properties-modal .modal-buttons { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem; }
+        #properties-modal .modal-buttons button { padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; cursor: pointer; font-weight: bold; }
+        #properties-modal #save-properties-button { background-color: #2563eb; color: white; }
+        #properties-modal #cancel-properties-button { background-color: #e5e7eb; color: #374151; }
+        #modal-backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1001; display: none; }
+        #prop-filename-display { font-size: 0.875rem; color: #6b7280; margin-top: -0.75rem; margin-bottom: 1rem; display: block; font-style: italic; word-break: break-all; }
+
+        /* --- Selection Rectangle --- */
+        #selection-rect { position: absolute; border: 1px dashed #000; background-color: rgba(59, 130, 246, 0.2); display: none; pointer-events: none; z-index: 1000; }
+
+    </style>
+</head>
+<body class="relative min-h-screen">
+
+    <div id="toolbar">
+        <button id="add-text-box">Add Text Box</button>
+        <button id="add-image-box">Add Image Box</button>
+        <button id="add-file-box">Add File Button</button>
+        <button id="add-link-box">Add Link Button</button>
+        <button id="add-arrow">Add Arrow</button>
+        <button id="save-button">Save</button>
+        <label for="load-input">Load</label>
+        <input type="file" id="load-input" accept=".flowchart, .json">
+        <button id="copy-button" title="Copy Selected Box" disabled>Copy</button>
+        <button id="paste-button" title="Paste Box" disabled>Paste</button>
+        <button id="delete-button" title="Delete Selected" disabled>Delete</button>
+        <button id="export-button" title="Export as View-Only HTML">Export View</button>
+        <button id="make-start-button" title="Set as Start Box" disabled style="display: none;">Make Start</button>
+    </div>
+
+    <div id="left-toolbar">
+        <div id="toolbar-section-color" class="toolbar-section" style="display: none;">
+            <h3>Background Color</h3>
+            <div id="color-palette"> <div class="color-swatch" style="background-color: #fecaca;"></div> <div class="color-swatch" style="background-color: #fed7aa;"></div> <div class="color-swatch" style="background-color: #fef08a;"></div> <div class="color-swatch" style="background-color: #bbf7d0;"></div> <div class="color-swatch" style="background-color: #bfdbfe;"></div> <div class="color-swatch" style="background-color: #ddd6fe;"></div> <div class="color-swatch" style="background-color: #fbcfe8;"></div> <div class="color-swatch" style="background-color: #ffffff;"></div> </div>
+            <label for="left-toolbar-bgcolor">Custom:</label> <input type="color" id="left-toolbar-bgcolor">
+        </div>
+        <div id="toolbar-section-text" class="toolbar-section" style="display: none;">
+            <h3>Text Properties</h3>
+             <label>Alignment:</label>
+             <div id="text-align-buttons"> <button class="align-button" data-align="left">Left</button> <button class="align-button" data-align="center">Center</button> <button class="align-button" data-align="right">Right</button> </div>
+             <label for="left-toolbar-fontfamily" style="margin-top: 0.75rem;">Font Family:</label> <select id="left-toolbar-fontfamily"> <option value="'Inter', sans-serif">Inter</option> <option value="'Roboto', sans-serif">Roboto</option> <option value="'Open Sans', sans-serif">Open Sans</option> <option value="'Lato', sans-serif">Lato</option> <option value="'Montserrat', sans-serif">Montserrat</option> <option value="'Poppins', sans-serif">Poppins</option> <option value="Arial, sans-serif">Arial</option> <option value="Verdana, sans-serif">Verdana</option> <option value="Georgia, serif">Georgia</option> <option value="'Times New Roman', Times, serif">Times New Roman</option> <option value="'Courier Prime', monospace">Courier Prime</option> </select>
+             <label for="left-toolbar-fontsize" style="margin-top: 0.75rem;">Size (px):</label> <input type="number" id="left-toolbar-fontsize" min="8" max="72" step="1" value="14">
+        </div>
+         <div id="toolbar-section-arrow-color" class="toolbar-section" style="display: none;">
+             <h3>Arrow/Label Color</h3> <label for="left-toolbar-arrowcolor">Color:</label> <input type="color" id="left-toolbar-arrowcolor">
+         </div>
+         <div id="toolbar-section-arrow-label" class="toolbar-section" style="display: none;">
+             <h3>Arrow Label Text</h3>
+             <div id="arrow-label-buttons"> <button class="label-button" data-label="Yes">Yes</button> <button class="label-button" data-label="No">No</button> <button class="label-button" data-label="">Clear</button> </div>
+         </div>
+    </div>
+
+    <div id="flowchart-container">
+        <svg id="arrow-canvas">
+            <defs> <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto-start-reverse" markerUnits="strokeWidth"> <path d="M 0 0 L 10 3.5 L 0 7 z" fill="#6b7280" /> </marker> <marker id="arrowhead-selected" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto-start-reverse" markerUnits="strokeWidth"> <path d="M 0 0 L 10 3.5 L 0 7 z" fill="#3b82f6" /> </marker> </defs>
+             </svg>
+    </div>
+
+    <div id="selection-rect"></div>
+
+    <div id="modal-backdrop"></div>
+    <div id="properties-modal">
+        <h2>Edit Details</h2> <input type="hidden" id="edit-element-id"> <input type="hidden" id="edit-element-type">
+        <div id="prop-group-link" style="display: none;"> <label for="prop-link">Link URL (Optional):</label> <input type="url" id="prop-link" placeholder="https://example.com"> </div>
+        <div id="prop-group-imageurl" style="display: none;"> <label for="prop-imageurl">Image URL:</label> <input type="url" id="prop-imageurl" placeholder="https://example.com/image.jpg"> <label for="prop-imageupload" style="margin-top: 0.5rem;">Or Upload Image:</label> <input type="file" id="prop-imageupload" accept="image/*"> </div>
+        <div id="prop-group-file" style="display: none;"> <label for="prop-buttontext-file">Button Text:</label> <input type="text" id="prop-buttontext-file" placeholder="Download File"> <label for="prop-fileupload" style="margin-top: 0.75rem;">Upload File:</label> <input type="file" id="prop-fileupload"> <span id="prop-filename-display">No file selected.</span> </div>
+        <div id="prop-group-linkbutton" style="display: none;"> <label for="prop-buttontext-link">Button Text:</label> <input type="text" id="prop-buttontext-link" placeholder="Visit Site"> <label for="prop-linkurl-link" style="margin-top: 0.75rem;">Target URL:</label> <input type="url" id="prop-linkurl-link" placeholder="https://example.com"> </div>
+        <div class="modal-buttons"> <button id="cancel-properties-button">Cancel</button> <button id="save-properties-button">Save</button> </div>
+    </div>
+
+    <script>
+        // --- Element References ---
+        const flowchartContainer = document.getElementById('flowchart-container');
+        const addTextBoxButton = document.getElementById('add-text-box');
+        const addImageBoxButton = document.getElementById('add-image-box');
+        const addFileBoxButton = document.getElementById('add-file-box');
+        const addLinkBoxButton = document.getElementById('add-link-box');
+        const addArrowButton = document.getElementById('add-arrow');
+        const saveButton = document.getElementById('save-button');
+        const loadInput = document.getElementById('load-input');
+        const copyButton = document.getElementById('copy-button');
+        const pasteButton = document.getElementById('paste-button');
+        const deleteButton = document.getElementById('delete-button');
+        const exportButton = document.getElementById('export-button');
+        const makeStartButton = document.getElementById('make-start-button');
+        const svgCanvas = document.getElementById('arrow-canvas');
+        const propertiesModal = document.getElementById('properties-modal');
+        const modalBackdrop = document.getElementById('modal-backdrop');
+        const editElementIdInput = document.getElementById('edit-element-id');
+        const editElementTypeInput = document.getElementById('edit-element-type');
+        const propLinkInput = document.getElementById('prop-link');
+        const propImageUrlInput = document.getElementById('prop-imageurl');
+        const propImageUploadInput = document.getElementById('prop-imageupload');
+        const propFileUploadInput = document.getElementById('prop-fileupload');
+        const propButtonTextFileInput = document.getElementById('prop-buttontext-file');
+        const propButtonTextLinkInput = document.getElementById('prop-buttontext-link');
+        const propLinkUrlLinkInput = document.getElementById('prop-linkurl-link');
+        const propFilenameDisplay = document.getElementById('prop-filename-display');
+        const propGroupLink = document.getElementById('prop-group-link');
+        const propGroupImageUrl = document.getElementById('prop-group-imageurl');
+        const propGroupFile = document.getElementById('prop-group-file');
+        const propGroupLinkButton = document.getElementById('prop-group-linkbutton');
+        const savePropertiesButton = document.getElementById('save-properties-button');
+        const cancelPropertiesButton = document.getElementById('cancel-properties-button');
+        const selectionRectElement = document.getElementById('selection-rect');
+        const leftToolbar = document.getElementById('left-toolbar');
+        const toolbarSectionColor = document.getElementById('toolbar-section-color');
+        const toolbarSectionText = document.getElementById('toolbar-section-text');
+        const toolbarSectionArrowColor = document.getElementById('toolbar-section-arrow-color');
+        const toolbarSectionArrowLabel = document.getElementById('toolbar-section-arrow-label');
+        const colorPalette = document.getElementById('color-palette');
+        const leftToolbarBgColorInput = document.getElementById('left-toolbar-bgcolor');
+        const leftToolbarFontFamilyInput = document.getElementById('left-toolbar-fontfamily');
+        const leftToolbarFontSizeInput = document.getElementById('left-toolbar-fontsize');
+        const leftToolbarArrowColorInput = document.getElementById('left-toolbar-arrowcolor');
+        const textAlignButtons = document.getElementById('text-align-buttons');
+        const arrowLabelButtons = document.getElementById('arrow-label-buttons');
+
+        // --- State Variables ---
+        let activeInteraction = null; let activeElement = null; let selectedElements = new Set();
+        let dragInitialPageX, dragInitialPageY; let dragInitialElementX, dragInitialElementY;
+        let resizeStartX, resizeStartY, resizeStartWidth, resizeStartHeight;
+        let activeArrowHandleInfo = null; let highestZIndex = 10; let boxes = {}; let arrows = {};
+        let clipboard = null; let nextBoxId = 0; let nextArrowId = 0;
+        let isSelectingArea = false; let selectionRectPageStartX, selectionRectPageStartY;
+        const MAX_FILE_SIZE_MB = 5;
+
+        // --- Helper Functions ---
+        function getRandomPastelColor() { const hue = Math.floor(Math.random() * 360); const saturation = 25 + Math.random() * 50; const lightness = 80 + Math.random() * 10; return `hsl(${hue}, ${saturation}%, ${lightness}%)`; }
+        function rgbToHex(rgb) { if (!rgb || rgb === 'transparent') return '#ffffff'; if (rgb.startsWith('#')) return rgb; let sep = rgb.indexOf(",") > -1 ? "," : " "; try { rgb = rgb.substr(rgb.startsWith('rgba') ? 5 : 4).split(")")[0].split(sep); let r = (+rgb[0]).toString(16), g = (+rgb[1]).toString(16), b = (+rgb[2]).toString(16); if (r.length == 1) r = "0" + r; if (g.length == 1) g = "0" + g; if (b.length == 1) b = "0" + b; return "#" + r + g + b; } catch (e) { console.warn("Could not parse RGB color:", rgb, e); return '#ffffff'; } }
+        function escapeHtml(unsafe) { return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
+
+        // --- Selection (Multi-Select Aware & Toolbar Update) ---
+        function updateLeftToolbar() { let showColor = false; let showTextProps = false; let showArrowColor = false; let showArrowLabel = false; let firstSelectedBox = null; let firstSelectedArrow = null; let commonTextAlign = null; let textCount = 0; let commonArrowLabel = null; let arrowCount = 0; selectedElements.forEach(({element, type}) => { if (type === 'box') { const boxType = element.dataset.type || 'text'; if (boxType === 'text' || boxType === 'file' || boxType === 'link') { showColor = true; if (!firstSelectedBox) firstSelectedBox = element; } if (boxType === 'text') { showTextProps = true; textCount++; if (textCount === 1) { commonTextAlign = element.dataset.textAlign || 'left'; } else if (commonTextAlign !== (element.dataset.textAlign || 'left')) { commonTextAlign = null; } } } else if (type === 'arrow') { showArrowColor = true; showArrowLabel = true; arrowCount++; const arrowData = arrows[element.dataset.id]; if (!firstSelectedArrow) firstSelectedArrow = arrowData; if (arrowCount === 1) { commonArrowLabel = arrowData?.label || ''; } else if (commonArrowLabel !== (arrowData?.label || '')) { commonArrowLabel = null; } } }); toolbarSectionColor.style.display = showColor ? 'block' : 'none'; toolbarSectionText.style.display = showTextProps ? 'block' : 'none'; toolbarSectionArrowColor.style.display = showArrowColor ? 'block' : 'none'; toolbarSectionArrowLabel.style.display = showArrowLabel ? 'block' : 'none'; if (showColor && firstSelectedBox) { leftToolbarBgColorInput.value = rgbToHex(firstSelectedBox.style.backgroundColor || 'ffffff'); } if (showTextProps && firstSelectedBox) { leftToolbarFontFamilyInput.value = firstSelectedBox.dataset.fontFamily || "'Inter', sans-serif"; leftToolbarFontSizeInput.value = firstSelectedBox.dataset.fontSize || 14; textAlignButtons.querySelectorAll('.align-button').forEach(btn => { btn.classList.remove('active'); if (commonTextAlign !== null && btn.dataset.align === commonTextAlign) { btn.classList.add('active'); } }); } else { textAlignButtons.querySelectorAll('.align-button').forEach(btn => btn.classList.remove('active')); } if (showArrowColor && firstSelectedArrow) { leftToolbarArrowColorInput.value = rgbToHex(firstSelectedArrow.color || '#6b7280'); } if (showArrowLabel) { arrowLabelButtons.querySelectorAll('.label-button').forEach(btn => { btn.classList.remove('active'); if (commonArrowLabel !== null && btn.dataset.label === commonArrowLabel) { btn.classList.add('active'); } }); } else { arrowLabelButtons.querySelectorAll('.label-button').forEach(btn => btn.classList.remove('active')); } }
+        function updateToolbarButtonStates() { const canMakeStart = selectedElements.size === 1 && selectedElements.values().next().value.type === 'box'; makeStartButton.disabled = !canMakeStart; makeStartButton.style.display = canMakeStart ? 'inline-block' : 'none'; if (canMakeStart) { const selectedBox = selectedElements.values().next().value.element; if (selectedBox.dataset.startBox === 'true') { makeStartButton.textContent = 'Is Start'; makeStartButton.classList.add('is-start'); makeStartButton.title = 'Clear Start Box Designation'; } else { makeStartButton.textContent = 'Make Start'; makeStartButton.classList.remove('is-start'); makeStartButton.title = 'Set as Start Box'; } } deleteButton.disabled = selectedElements.size === 0; let singleSelectedBox = null; if (selectedElements.size === 1) { const firstItem = selectedElements.values().next().value; if (firstItem.type === 'box') { singleSelectedBox = firstItem.element; } } copyButton.disabled = !singleSelectedBox; pasteButton.disabled = !clipboard; updateLeftToolbar(); }
+        function deselectAll() { selectedElements.forEach(({ element, type }) => { element.classList.remove('selected'); if (type === 'arrow') { hideArrowHandles(element.dataset.id); } }); selectedElements.clear(); updateToolbarButtonStates(); }
+        function selectElement(element, type, ctrlPressed = false) { const elementId = element.dataset.id; const selectionInfo = { element, type }; let alreadySelected = false; selectedElements.forEach(item => { if (item.element === element) { alreadySelected = true; } }); if (!ctrlPressed) { if (!alreadySelected || selectedElements.size > 1) { deselectAll(); } } if (ctrlPressed && alreadySelected) { selectedElements.forEach(item => { if (item.element === element) { selectedElements.delete(item); } }); element.classList.remove('selected'); if (type === 'arrow') hideArrowHandles(elementId); } else if (!alreadySelected) { selectedElements.add(selectionInfo); element.classList.add('selected'); if (type === 'arrow') showArrowHandles(elementId); } updateToolbarButtonStates(); }
+
+        // --- Element Creation ---
+        function createBox(id = null, type = 'text', initialContent = '', x = 50, y = 50, width = 150, height = 100, color = null, link = '', fontFamily = "Georgia, serif", fontSize = 18, textAlign = 'center', buttonText = 'Button', filename = '', isStart = false) { const boxId = id === null ? `box-${nextBoxId++}` : id; if (id !== null) { const numericId = parseInt(id.split('-')[1]); if (!isNaN(numericId) && numericId >= nextBoxId) { nextBoxId = numericId + 1; } } const box = document.createElement('div'); box.classList.add('flowchart-box', `type-${type}`); box.dataset.id = boxId; box.dataset.type = type; box.dataset.link = (type === 'link' || type === 'text' || type === 'image') ? link : ''; box.dataset.fontFamily = fontFamily; box.dataset.fontSize = fontSize; box.dataset.textAlign = textAlign; box.dataset.buttonText = buttonText; box.dataset.filename = filename; if (isStart) box.dataset.startBox = 'true'; box.dataset.content = (type === 'file' || type === 'image') ? initialContent : ''; box.style.left = `${x}px`; box.style.top = `${y}px`; box.style.width = `${width}px`; box.style.height = `${height}px`; box.style.backgroundColor = (type === 'text' || type === 'file' || type === 'link') ? (color || getRandomPastelColor()) : 'transparent'; box.style.zIndex = highestZIndex++; if (type === 'text') { const content = document.createElement('div'); content.classList.add('box-content'); content.setAttribute('contenteditable', 'true'); content.textContent = initialContent || 'Edit Text'; content.style.fontFamily = fontFamily; content.style.fontSize = `${fontSize}px`; content.style.textAlign = textAlign; box.appendChild(content); content.addEventListener('mousedown', (e) => e.stopPropagation()); content.addEventListener('focus', () => box.style.cursor = 'text'); content.addEventListener('blur', () => box.style.cursor = 'grab'); } else if (type === 'image') { const img = document.createElement('img'); img.classList.add('box-image'); img.src = initialContent || 'https://placehold.co/150x100/eee/ccc?text=No+Image'; img.alt = "Flowchart Image"; img.draggable = false; img.onerror = function() { this.src = 'https://placehold.co/150x100/f87171/ffffff?text=Error'; }; box.appendChild(img); } else if (type === 'file' || type === 'link') { const buttonEl = document.createElement('div'); buttonEl.classList.add('box-button-content'); buttonEl.textContent = buttonText; box.appendChild(buttonEl); box.style.height = '50px'; } const resizeHandle = document.createElement('div'); resizeHandle.classList.add('resize-handle'); box.appendChild(resizeHandle);
+            box.addEventListener('mousedown', (e) => { selectElement(box, 'box', e.ctrlKey); const contentArea = box.querySelector('.box-content'); if (e.target !== resizeHandle && (!contentArea || e.target !== contentArea || document.activeElement !== contentArea)) { activeInteraction = 'drag-box'; activeElement = box; dragInitialPageX = e.pageX; dragInitialPageY = e.pageY; dragInitialElementX = parseFloat(activeElement.style.left); dragInitialElementY = parseFloat(activeElement.style.top); e.preventDefault(); } e.stopPropagation(); });
+            resizeHandle.addEventListener('mousedown', (e) => { selectElement(box, 'box', e.ctrlKey); activeInteraction = 'resize-box'; activeElement = box; activeElement.style.zIndex = highestZIndex++; resizeStartX = e.pageX; resizeStartY = e.pageY; resizeStartWidth = activeElement.offsetWidth; resizeStartHeight = activeElement.offsetHeight; e.preventDefault(); e.stopPropagation(); });
+            box.addEventListener('dblclick', (e) => { if (e.target !== resizeHandle && e.target.tagName !== 'IMG' && !e.target.isContentEditable && !e.target.classList.contains('box-button-content')) { showPropertiesModal(box); } }); flowchartContainer.appendChild(box); boxes[boxId] = box; return box; }
+        function createCurvedArrow(id = null, startX = 100, startY = 100, controlX = 150, controlY = 125, endX = 200, endY = 150, color = '#6b7280', label = '') { const arrowId = id === null ? `arrow-${nextArrowId++}` : id; if (id !== null) { const numericId = parseInt(id.split('-')[1]); if (!isNaN(numericId) && numericId >= nextArrowId) { nextArrowId = numericId + 1; } } const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.classList.add('arrow-path'); path.dataset.id = arrowId; path.style.stroke = color; path.dataset.color = color;
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); rect.classList.add('arrow-label-bg'); rect.style.display = label ? 'block' : 'none';
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text'); text.classList.add('arrow-label'); text.dataset.arrowId = arrowId; text.textContent = label; text.style.fill = color; // Use arrow color for label initially
+            const startHandle = createArrowHandle(arrowId, 'start', startX, startY); const controlHandle = createArrowHandle(arrowId, 'control', controlX, controlY); const endHandle = createArrowHandle(arrowId, 'end', endX, endY);
+            svgCanvas.appendChild(path); svgCanvas.appendChild(rect); svgCanvas.appendChild(text); svgCanvas.appendChild(startHandle); svgCanvas.appendChild(controlHandle); svgCanvas.appendChild(endHandle);
+            // Store bg rect dimensions on arrowData, initialize to 0
+            arrows[arrowId] = { startX, startY, controlX, controlY, endX, endY, color, label, element: path, textElement: text, labelBgElement: rect, startHandle, controlHandle, endHandle, bgX: 0, bgY: 0, bgWidth: 0, bgHeight: 0 };
+            updateArrowPath(arrowId);
+            path.addEventListener('dblclick', (e) => { /* No modal for arrows yet */ e.stopPropagation(); }); path.addEventListener('mousedown', (e) => { selectElement(path, 'arrow', e.ctrlKey); e.stopPropagation(); });
+            text.addEventListener('mousedown', (e) => { e.stopPropagation(); const currentLabel = arrows[arrowId].label; let nextLabel = ''; if (currentLabel === '') { nextLabel = 'Yes'; } else if (currentLabel === 'Yes') { nextLabel = 'No'; } else { nextLabel = ''; } arrows[arrowId].label = nextLabel; text.textContent = nextLabel; updateArrowPath(arrowId); if(selectedElements.size === 1) { updateLeftToolbar(); } });
+            return path; }
+        function createArrowHandle(arrowId, handleType, cx, cy) { const handle = document.createElementNS('http://www.w3.org/2000/svg', handleType === 'control' ? 'rect' : 'circle'); handle.classList.add('arrow-handle', `${handleType}-handle`); handle.dataset.arrowId = arrowId; handle.dataset.handleType = handleType; handle.style.display = 'none'; if (handleType === 'control') { const size = 10; handle.setAttribute('x', cx - size / 2); handle.setAttribute('y', cy - size / 2); handle.setAttribute('width', size); handle.setAttribute('height', size); handle.setAttribute('rx', 2); } else { handle.setAttribute('cx', cx); handle.setAttribute('cy', cy); handle.setAttribute('r', 6); } handle.addEventListener('mousedown', (e) => { activeInteraction = 'drag-arrow-handle'; activeElement = handle; activeArrowHandleInfo = { arrowId, handleType }; e.preventDefault(); e.stopPropagation(); }); return handle; }
+
+        // --- Arrow Updates ---
+        function showArrowHandles(arrowId) { const arrowData = arrows[arrowId]; if (arrowData) { arrowData.startHandle.style.display = 'block'; arrowData.controlHandle.style.display = 'block'; arrowData.endHandle.style.display = 'block'; svgCanvas.appendChild(arrowData.startHandle); svgCanvas.appendChild(arrowData.controlHandle); svgCanvas.appendChild(arrowData.endHandle); } }
+        function hideArrowHandles(arrowId) { const arrowData = arrows[arrowId]; if (arrowData) { arrowData.startHandle.style.display = 'none'; arrowData.controlHandle.style.display = 'none'; arrowData.endHandle.style.display = 'none'; } }
+        function updateArrowHandles(arrowId) { const arrowData = arrows[arrowId]; if (arrowData) { arrowData.startHandle.setAttribute('cx', arrowData.startX); arrowData.startHandle.setAttribute('cy', arrowData.startY); arrowData.endHandle.setAttribute('cx', arrowData.endX); arrowData.endHandle.setAttribute('cy', arrowData.endY); const controlHandle = arrowData.controlHandle; const size = parseFloat(controlHandle.getAttribute('width')); controlHandle.setAttribute('x', arrowData.controlX - size / 2); controlHandle.setAttribute('y', arrowData.controlY - size / 2); } }
+        function updateArrowPath(arrowId, newCoords = {}) { // Updates text position and background
+             const arrowData = arrows[arrowId]; if (!arrowData) return;
+             Object.assign(arrowData, newCoords); // Update coords (startX, startY, etc.)
+             const { startX, startY, controlX, controlY, endX, endY, textElement, labelBgElement, label } = arrowData;
+             const pathString = `M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}`;
+             arrowData.element.setAttribute('d', pathString);
+             updateArrowHandles(arrowId);
+             const midX = 0.25 * startX + 0.5 * controlX + 0.25 * endX;
+             const midY = 0.25 * startY + 0.5 * controlY + 0.25 * endY;
+             textElement.setAttribute('x', midX);
+             textElement.setAttribute('y', midY);
+             textElement.setAttribute('dy', '-6'); // Adjust dy for better baseline alignment if needed
+
+             if (label && label.length > 0) {
+                 // Ensure text is rendered before getting BBox
+                 // Using try-catch as getBBox can fail if not rendered, though less likely here
+                 try {
+                     const textBBox = textElement.getBBox();
+                     const padding = 4;
+                     // Calculate and store background dimensions
+                     arrowData.bgX = textBBox.x - padding;
+                     arrowData.bgY = textBBox.y - padding;
+                     arrowData.bgWidth = textBBox.width + 2 * padding;
+                     arrowData.bgHeight = textBBox.height + 2 * padding;
+                     // Apply to the rect element
+                     labelBgElement.setAttribute('x', arrowData.bgX);
+                     labelBgElement.setAttribute('y', arrowData.bgY);
+                     labelBgElement.setAttribute('width', arrowData.bgWidth);
+                     labelBgElement.setAttribute('height', arrowData.bgHeight);
+                     labelBgElement.style.display = 'block';
+                 } catch (e) {
+                     console.warn("Could not get text BBox for arrow label background.", e);
+                     labelBgElement.style.display = 'none';
+                     // Reset stored dimensions if calculation fails
+                     arrowData.bgX = arrowData.bgY = arrowData.bgWidth = arrowData.bgHeight = undefined;
+                 }
+             } else {
+                 labelBgElement.style.display = 'none'; // Hide background if no label
+                 arrowData.bgX = arrowData.bgY = arrowData.bgWidth = arrowData.bgHeight = undefined; // Clear stored dimensions
+             }
+        }
+
+
+        // --- Properties Modal ---
+        function showPropertiesModal(element) { const elementType = element.classList.contains('flowchart-box') ? 'box' : 'arrow'; const elementId = element.dataset.id; editElementIdInput.value = elementId; editElementTypeInput.value = elementType; propGroupLink.style.display = 'none'; propGroupImageUrl.style.display = 'none'; propGroupFile.style.display = 'none'; propGroupLinkButton.style.display = 'none'; propImageUploadInput.value = ''; propFileUploadInput.value = ''; delete propertiesModal.dataset.currentDataUrl; delete propertiesModal.dataset.currentFilename; if (elementType === 'box') { const boxType = element.dataset.type || 'text'; if (boxType === 'text' || boxType === 'image') { propLinkInput.value = element.dataset.link || ''; propGroupLink.style.display = 'block'; } if (boxType === 'image') { const imgElement = element.querySelector('.box-image'); propImageUrlInput.value = imgElement ? imgElement.src : ''; propGroupImageUrl.style.display = 'block'; } else if (boxType === 'file') { propButtonTextFileInput.value = element.dataset.buttonText || 'Download'; propFilenameDisplay.textContent = element.dataset.filename || 'No file selected.'; propGroupFile.style.display = 'block'; } else if (boxType === 'link') { propButtonTextLinkInput.value = element.dataset.buttonText || 'Visit Link'; propLinkUrlLinkInput.value = element.dataset.link || ''; propGroupLinkButton.style.display = 'block'; } } else { return; } propertiesModal.style.display = 'block'; modalBackdrop.style.display = 'block'; }
+        function hidePropertiesModal() { propertiesModal.style.display = 'none'; modalBackdrop.style.display = 'none'; editElementIdInput.value = ''; editElementTypeInput.value = ''; propLinkInput.value = ''; propImageUrlInput.value = ''; propImageUploadInput.value = ''; propFileUploadInput.value = ''; propButtonTextFileInput.value = ''; propButtonTextLinkInput.value = ''; propLinkUrlLinkInput.value = ''; propFilenameDisplay.textContent = 'No file selected.'; delete propertiesModal.dataset.currentDataUrl; delete propertiesModal.dataset.currentFilename;}
+        function saveProperties() { const elementId = editElementIdInput.value; const elementType = editElementTypeInput.value; if (elementType === 'box') { const boxElement = boxes[elementId]; if (!boxElement) { console.error("Box not found:", elementId); hidePropertiesModal(); return; } const boxType = boxElement.dataset.type || 'text'; if (boxType === 'text' || boxType === 'image') { boxElement.dataset.link = propLinkInput.value; } else if (boxType === 'link') { boxElement.dataset.link = propLinkUrlLinkInput.value; } if (boxType === 'image') { const imgElement = boxElement.querySelector('.box-image'); if (imgElement) { imgElement.src = propImageUrlInput.value || 'https://placehold.co/150x100/eee/ccc?text=No+Image'; } } else if (boxType === 'file') { const newText = propButtonTextFileInput.value || 'Download'; boxElement.dataset.buttonText = newText; const buttonEl = boxElement.querySelector('.box-button-content'); if (buttonEl) buttonEl.textContent = newText; if (propertiesModal.dataset.currentDataUrl && propertiesModal.dataset.currentFilename) { boxElement.dataset.content = propertiesModal.dataset.currentDataUrl; boxElement.dataset.filename = propertiesModal.dataset.currentFilename; } } else if (boxType === 'link') { const newText = propButtonTextLinkInput.value || 'Visit Link'; boxElement.dataset.buttonText = newText; const buttonEl = boxElement.querySelector('.box-button-content'); if (buttonEl) buttonEl.textContent = newText; } } hidePropertiesModal(); }
+        propImageUploadInput.addEventListener('change', function(event) { const file = event.target.files[0]; if (file && file.type.startsWith('image/')) { const reader = new FileReader(); reader.onload = (e) => { propImageUrlInput.value = e.target.result; }; reader.readAsDataURL(file); } else if (file) { alert('Please select a valid image file.'); event.target.value = ''; } });
+        propFileUploadInput.addEventListener('change', function(event) { const file = event.target.files[0]; if (file) { const fileSizeMB = file.size / 1024 / 1024; if (fileSizeMB > MAX_FILE_SIZE_MB) { alert(`File is too large (${fileSizeMB.toFixed(1)} MB). Maximum size is ${MAX_FILE_SIZE_MB} MB due to Data URL limitations.`); event.target.value = ''; propFilenameDisplay.textContent = 'File too large.'; delete propertiesModal.dataset.currentDataUrl; delete propertiesModal.dataset.currentFilename; return; } const reader = new FileReader(); reader.onload = (e) => { propertiesModal.dataset.currentDataUrl = e.target.result; propertiesModal.dataset.currentFilename = file.name; propFilenameDisplay.textContent = `Selected: ${file.name}`; if (!propButtonTextFileInput.value) { propButtonTextFileInput.value = file.name; } }; reader.onerror = (e) => { console.error("Error reading file:", e); alert("Could not read the selected file."); propFilenameDisplay.textContent = 'Error reading file.'; delete propertiesModal.dataset.currentDataUrl; delete propertiesModal.dataset.currentFilename; }; reader.readAsDataURL(file); } else { propFilenameDisplay.textContent = 'No file selected.'; delete propertiesModal.dataset.currentDataUrl; delete propertiesModal.dataset.currentFilename; } });
+
+        // --- Actions (Copy/Paste/Delete) ---
+        function copySelectedBox() { if (selectedElements.size !== 1) return; const selection = selectedElements.values().next().value; if (selection.type !== 'box') return; const box = selection.element; const boxType = box.dataset.type || 'text'; let contentValue = ''; if (boxType === 'text') { const el = box.querySelector('.box-content'); contentValue = el ? el.textContent : ''; } else if (boxType === 'image') { const el = box.querySelector('.box-image'); contentValue = el ? el.src : ''; } else if (boxType === 'file') { contentValue = box.dataset.content || ''; } clipboard = { elementType: 'box', type: boxType, content: contentValue, width: box.offsetWidth, height: box.offsetHeight, color: box.style.backgroundColor, link: box.dataset.link || '', fontFamily: box.dataset.fontFamily, fontSize: box.dataset.fontSize, textAlign: box.dataset.textAlign, buttonText: box.dataset.buttonText, filename: box.dataset.filename, isStart: box.dataset.startBox === 'true', originalX: parseFloat(box.style.left), originalY: parseFloat(box.style.top) }; pasteButton.disabled = false; console.log('Box copied to clipboard:', clipboard); }
+        function pasteBox() { if (!clipboard || clipboard.elementType !== 'box') return; const pasteOffset = 20; const newX = clipboard.originalX + pasteOffset; const newY = clipboard.originalY + pasteOffset; const newBox = createBox( null, clipboard.type, clipboard.content, newX, newY, clipboard.width, clipboard.height, clipboard.color, clipboard.link, clipboard.fontFamily, clipboard.fontSize, clipboard.textAlign, clipboard.buttonText, clipboard.filename, false ); deselectAll(); selectElement(newBox, 'box'); console.log('Box pasted:', newBox.dataset.id); }
+        function deleteSelected() { selectedElements.forEach(({ element, type }) => { const id = element.dataset.id; if (type === 'box') { element.remove(); delete boxes[id]; console.log(`Box ${id} deleted`); } else if (type === 'arrow') { deleteArrow(id); } }); deselectAll(); }
+        function deleteArrow(arrowId) { const arrowData = arrows[arrowId]; if (arrowData) { arrowData.element.remove(); arrowData.startHandle.remove(); arrowData.controlHandle.remove(); arrowData.endHandle.remove(); if (arrowData.textElement) arrowData.textElement.remove(); if (arrowData.labelBgElement) arrowData.labelBgElement.remove(); delete arrows[arrowId]; console.log(`Arrow ${arrowId} deleted`); } }
+
+        // --- Global Listeners (Mouse/Keyboard) ---
+        document.addEventListener('mousemove', (e) => { const mouseX = e.pageX; const mouseY = e.pageY; const containerRect = flowchartContainer.getBoundingClientRect(); const mouseRelativeToSvgOriginX = mouseX - containerRect.left - window.scrollX; const mouseRelativeToSvgOriginY = mouseY - containerRect.top - window.scrollY; if (activeInteraction === 'drag-box' && activeElement) { if (activeElement.style.zIndex < highestZIndex -1) { activeElement.style.zIndex = highestZIndex++; } const deltaX = mouseX - dragInitialPageX; const deltaY = mouseY - dragInitialPageY; let newX = dragInitialElementX + deltaX; let newY = dragInitialElementY + deltaY; newX = Math.max(0, newX); newY = Math.max(0, newY); activeElement.style.left = `${newX}px`; activeElement.style.top = `${newY}px`; } else if (activeInteraction === 'resize-box' && activeElement) { const deltaX = mouseX - resizeStartX; const deltaY = mouseY - resizeStartY; let newWidth = resizeStartWidth + deltaX; let newHeight = resizeStartHeight + deltaY; const minWidth = parseInt(getComputedStyle(activeElement).minWidth, 10); const minHeight = parseInt(getComputedStyle(activeElement).minHeight, 10); newWidth = Math.max(minWidth, newWidth); newHeight = Math.max(minHeight, newHeight); activeElement.style.width = `${newWidth}px`; activeElement.style.height = `${newHeight}px`; } else if (activeInteraction === 'drag-arrow-handle' && activeElement) { const { arrowId, handleType } = activeArrowHandleInfo; const newCoords = {}; const targetX = Math.max(0, mouseRelativeToSvgOriginX); const targetY = Math.max(0, mouseRelativeToSvgOriginY); newCoords[handleType + 'X'] = targetX; newCoords[handleType + 'Y'] = targetY; updateArrowPath(arrowId, newCoords); } else if (isSelectingArea) { const currentX = mouseX; const currentY = mouseY; const left = Math.min(selectionRectPageStartX, currentX); const top = Math.min(selectionRectPageStartY, currentY); const width = Math.abs(selectionRectPageStartX - currentX); const height = Math.abs(selectionRectPageStartY - currentY); selectionRectElement.style.left = `${left}px`; selectionRectElement.style.top = `${top}px`; selectionRectElement.style.width = `${width}px`; selectionRectElement.style.height = `${height}px`; } });
+        document.addEventListener('mouseup', (e) => { if (isSelectingArea) { isSelectingArea = false; selectionRectElement.style.display = 'none'; const finalRectLeft = Math.min(selectionRectPageStartX, e.pageX); const finalRectTop = Math.min(selectionRectPageStartY, e.pageY); const finalRectWidth = Math.abs(selectionRectPageStartX - e.pageX); const finalRectHeight = Math.abs(selectionRectPageStartY - e.pageY); const selectionRectVP = { left: finalRectLeft - window.scrollX, top: finalRectTop - window.scrollY, right: finalRectLeft - window.scrollX + finalRectWidth, bottom: finalRectTop - window.scrollY + finalRectHeight, width: finalRectWidth, height: finalRectHeight }; deselectAll(); Object.values(boxes).forEach(box => { const boxRect = box.getBoundingClientRect(); if (rectsIntersect(selectionRectVP, boxRect)) { selectedElements.add({ element: box, type: 'box' }); box.classList.add('selected'); } }); Object.values(arrows).forEach(arrowData => { const arrowRect = arrowData.element.getBoundingClientRect(); if (rectsIntersect(selectionRectVP, arrowRect)) { selectedElements.add({ element: arrowData.element, type: 'arrow' }); arrowData.element.classList.add('selected'); showArrowHandles(arrowData.element.dataset.id); } }); updateToolbarButtonStates(); } else if (activeInteraction) { activeInteraction = null; activeElement = null; activeArrowHandleInfo = null; } });
+        flowchartContainer.addEventListener('mousedown', (e) => { if (e.target === flowchartContainer && e.ctrlKey) { isSelectingArea = true; selectionRectPageStartX = e.pageX; selectionRectPageStartY = e.pageY; selectionRectElement.style.left = `${selectionRectPageStartX}px`; selectionRectElement.style.top = `${selectionRectPageStartY}px`; selectionRectElement.style.width = '0px'; selectionRectElement.style.height = '0px'; selectionRectElement.style.display = 'block'; deselectAll(); e.preventDefault(); } else if (e.target === flowchartContainer) { deselectAll(); } });
+        function rectsIntersect(r1, r2) { return !(r2.left > r1.right || r2.right < r1.left || r2.top > r1.bottom || r2.bottom < r1.top); }
+        document.addEventListener('keydown', (e) => { if (e.key === 'Delete' && selectedElements.size > 0) { deleteSelected(); } else if (e.key === 'Backspace') { let isEditingTextBoxContent = false; if (document.activeElement && document.activeElement.classList.contains('box-content') && document.activeElement.isContentEditable) { const parentBox = document.activeElement.closest('.flowchart-box'); selectedElements.forEach(item => { if (item.element === parentBox && item.type === 'box') { isEditingTextBoxContent = true; } }); } if (isEditingTextBoxContent) { /* Allow default */ } else { if (!(e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) { e.preventDefault(); } } } });
+
+        // --- Save/Load/Export ---
+        function saveData() { // Include bg rect dims
+            const flowchartData = { boxes: [], arrows: [] };
+            Object.values(boxes).forEach(box => { const boxType = box.dataset.type || 'text'; let contentValue = ''; if (boxType === 'text') { const contentElement = box.querySelector('.box-content'); contentValue = contentElement ? contentElement.textContent : ''; } else if (boxType === 'image') { const imgElement = box.querySelector('.box-image'); contentValue = imgElement ? imgElement.src : ''; } else if (boxType === 'file') { contentValue = box.dataset.content || ''; } flowchartData.boxes.push({ id: box.dataset.id, type: boxType, content: contentValue, x: parseFloat(box.style.left), y: parseFloat(box.style.top), width: box.offsetWidth, height: box.offsetHeight, color: box.style.backgroundColor, link: box.dataset.link || '', fontFamily: box.dataset.fontFamily, fontSize: box.dataset.fontSize, textAlign: box.dataset.textAlign, buttonText: box.dataset.buttonText, filename: box.dataset.filename, isStart: box.dataset.startBox === 'true' }); });
+            Object.values(arrows).forEach(arrowData => { if (arrowData && arrowData.element) { flowchartData.arrows.push({ id: arrowData.element.dataset.id, startX: arrowData.startX, startY: arrowData.startY, controlX: arrowData.controlX, controlY: arrowData.controlY, endX: arrowData.endX, endY: arrowData.endY, color: arrowData.color || '#6b7280', label: arrowData.label || '', bgX: arrowData.bgX, bgY: arrowData.bgY, bgWidth: arrowData.bgWidth, bgHeight: arrowData.bgHeight }); } }); // Save bg dims
+            const jsonString = JSON.stringify(flowchartData, null, 2); const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' }); saveAs(blob, 'flowchart.flowchart'); }
+        function loadData(event) { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { const flowchartData = JSON.parse(e.target.result); clearCanvas(); renderFlowchart(flowchartData); } catch (error) { console.error("Error parsing flowchart file:", error); alert("Could not load flowchart: Invalid file format."); } finally { event.target.value = null; } }; reader.onerror = (e) => { console.error("Error reading file:", e); alert("Could not read the selected file."); event.target.value = null; }; reader.readAsText(file); }
+        function clearCanvas() { Object.values(boxes).forEach(box => box.remove()); boxes = {}; Object.keys(arrows).forEach(deleteArrow); arrows = {}; nextBoxId = 0; nextArrowId = 0; highestZIndex = 10; selectedElements.clear(); activeElement = null; activeInteraction = null; clipboard = null; updateToolbarButtonStates(); hidePropertiesModal();}
+        function renderFlowchart(data) { // Load bg rect dims
+             if (!data) return; if (data.boxes) { data.boxes.forEach(boxData => { createBox( boxData.id, boxData.type || 'text', boxData.content, boxData.x, boxData.y, boxData.width, boxData.height, boxData.color, boxData.link || '', boxData.fontFamily, boxData.fontSize, boxData.textAlign || 'left', boxData.buttonText || 'Button', boxData.filename || '', boxData.isStart || false ); }); }
+             if (data.arrows) { data.arrows.forEach(arrowData => {
+                 const midX = (arrowData.startX + arrowData.endX) / 2; const midY = (arrowData.startY + arrowData.endY) / 2; const offsetX = (arrowData.endY - arrowData.startY) * 0.1; const offsetY = (arrowData.startX - arrowData.endX) * 0.1;
+                 const newArrow = createCurvedArrow( arrowData.id, arrowData.startX, arrowData.startY, arrowData.controlX ?? (midX + offsetX), arrowData.controlY ?? (midY + offsetY), arrowData.endX, arrowData.endY, arrowData.color || '#6b7280', arrowData.label || '' );
+                 // Apply saved background dimensions if they exist
+                 if (newArrow && arrowData.bgX !== undefined && arrows[arrowData.id]) {
+                     const arrowObj = arrows[arrowData.id];
+                     arrowObj.bgX = arrowData.bgX; arrowObj.bgY = arrowData.bgY;
+                     arrowObj.bgWidth = arrowData.bgWidth; arrowObj.bgHeight = arrowData.bgHeight;
+                     // Apply to element
+                     arrowObj.labelBgElement.setAttribute('x', arrowObj.bgX);
+                     arrowObj.labelBgElement.setAttribute('y', arrowObj.bgY);
+                     arrowObj.labelBgElement.setAttribute('width', arrowObj.bgWidth);
+                     arrowObj.labelBgElement.setAttribute('height', arrowObj.bgHeight);
+                     arrowObj.labelBgElement.style.display = arrowObj.label ? 'block' : 'none'; // Ensure visibility matches label
+                 }
+             }); } }
+        function generateViewModeHtml() { // Export background rect
+             let boxesHtml = ''; Object.values(boxes).forEach(box => { const boxType = box.dataset.type || 'text'; const boxId = box.dataset.id; const link = box.dataset.link || ''; let contentHtml = ''; let boxClasses = `flowchart-box type-${boxType}`; let boxStyle = `left: ${box.style.left}; top: ${box.style.top}; width: ${box.style.width}; height: ${box.style.height}; background-color: ${box.style.backgroundColor}; z-index: ${box.style.zIndex || 10};`; let contentStyle = ''; let extraAttrs = box.dataset.startBox === 'true' ? ' data-start-box="true"' : ''; if (boxType === 'text') { const textContent = escapeHtml(box.querySelector('.box-content')?.textContent || ''); const fontFamily = escapeHtml(box.dataset.fontFamily || "'Inter', sans-serif"); const fontSize = escapeHtml(box.dataset.fontSize || '14'); const textAlign = escapeHtml(box.dataset.textAlign || 'left'); contentStyle = `font-family: ${fontFamily}; font-size: ${fontSize}px; text-align: ${textAlign};`; contentHtml = `<div class="box-content" style="${contentStyle}">${textContent}</div>`; } else if (boxType === 'image') { const imgElement = box.querySelector('.box-image'); const imgSrc = escapeHtml(imgElement?.src || ''); contentHtml = `<img src="${imgSrc}" class="box-image" alt="Flowchart Image" onerror="this.src='https://placehold.co/150x100/f87171/ffffff?text=Error'">`; } else if (boxType === 'file') { const fileUrl = box.dataset.content || '#'; const buttonText = escapeHtml(box.dataset.buttonText || 'Download'); const filename = escapeHtml(box.dataset.filename || buttonText); contentHtml = `<a href="${fileUrl}" download="${filename}" class="box-button-content">${buttonText}</a>`; boxClasses += ' flex justify-center items-center'; } else if (boxType === 'link') { const targetUrl = escapeHtml(box.dataset.link || '#'); const buttonText = escapeHtml(box.dataset.buttonText || 'Visit Link'); contentHtml = `<a href="${targetUrl}" target="_blank" class="box-button-content">${buttonText}</a>`; boxClasses += ' flex justify-center items-center'; } if (link && (boxType === 'text' || boxType === 'image')) { contentHtml = `<a href="${escapeHtml(link)}" target="_blank" style="display: block; width: 100%; height: 100%; text-decoration: none; color: inherit;">${contentHtml}</a>`; } boxesHtml += `<div id="${boxId}" class="${boxClasses}" style="${boxStyle}"${extraAttrs}>${contentHtml}</div>\n`; });
+             let arrowsSvg = ''; Object.values(arrows).forEach(arrow => {
+                 const pathString = `M ${arrow.startX} ${arrow.startY} Q ${arrow.controlX} ${arrow.controlY} ${arrow.endX} ${arrow.endY}`;
+                 arrowsSvg += `<path d="${pathString}" class="arrow-path" style="stroke: ${arrow.color || '#6b7280'};" marker-end="url(#arrowhead)"></path>\n`;
+                 if (arrow.label) {
+                     const midX = 0.25 * arrow.startX + 0.5 * arrow.controlX + 0.25 * arrow.endX;
+                     const midY = 0.25 * arrow.startY + 0.5 * arrow.controlY + 0.25 * arrow.endY;
+                     // Add background rect using saved dimensions (with fallbacks)
+                     const bgRect = `<rect class="arrow-label-bg" x="${arrow.bgX || (midX - 20)}" y="${arrow.bgY || (midY - 15)}" width="${arrow.bgWidth || 40}" height="${arrow.bgHeight || 20}" rx="4" ry="4"></rect>\n`;
+                     arrowsSvg += bgRect;
+                     // Add text label
+                     arrowsSvg += `<text x="${midX}" y="${midY}" dy="-6" class="arrow-label" style="fill: ${arrow.color || 'black'};">${escapeHtml(arrow.label)}</text>\n`;
+                 }
+             });
+             const viewModeCss = `
+                 body { font-family: 'Inter', sans-serif; background-color: #ffffbf; margin: 0; padding: 0; overflow: auto !important; padding-left: 0 !important; }
+                 #flowchart-container { position: relative; width: fit-content; min-width: 100%; min-height: 100vh; padding-top: 0 !important; box-sizing: border-box; }
+                 #arrow-canvas { position: absolute; top: 0; left: 0; width: 5000px; height: 5000px; pointer-events: none; z-index: 5; overflow: visible; }
+                 .flowchart-box { position: absolute; padding: 0; border-radius: 0.5rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); min-width: 80px; min-height: 40px; color: #333; overflow: hidden; display: flex; flex-direction: column; background-clip: padding-box; border: 1px solid rgba(0,0,0,0.1); transition: transform 0.2s ease-out, box-shadow 0.2s ease-out; cursor: pointer; box-sizing: border-box; }
+                 .flowchart-box.type-text { padding: 1rem; }
+                 .flowchart-box.type-file, .flowchart-box.type-link { padding: 0; justify-content: center; align-items: center; text-align: center; color: white; }
+                 .flowchart-box.type-file a, .flowchart-box.type-link a { text-decoration: none; padding: 0.5rem 1rem; display: block; color: inherit; }
+                 .flowchart-box:hover { transform: scale(1.03); box-shadow: 0 8px 15px rgba(0,0,0,0.15); z-index: 100 !important; }
+                 .box-content { flex-grow: 1; overflow-y: auto; line-height: 1.4; }
+                 .box-image { width: 100%; height: 100%; object-fit: cover; display: block; }
+                 .arrow-path { stroke-width: 2; fill: none; }
+                 /* Updated arrow label style for export */
+                 .arrow-label { font-size: 18px; font-family: Georgia, serif; text-anchor: middle; dominant-baseline: middle; pointer-events: none; z-index: 8; }
+                 .arrow-label-bg { fill: #ffffe3; stroke: #4b5563; stroke-width: 1px; z-index: 7; } /* Style for exported rect */
+             `;
+             const viewModeJs = ` document.addEventListener('DOMContentLoaded', () => { const boxes = document.querySelectorAll('.flowchart-box'); let startBox = null; boxes.forEach(box => { box.addEventListener('click', (e) => { box.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }); }); if (box.dataset.startBox === 'true') { startBox = box; } }); if (startBox) { setTimeout(() => { startBox.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' }); }, 100); } }); `;
+             const fullHtml = ` <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Flowchart View</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Roboto:wght@400;500;700&family=Open+Sans:wght@400;500;700&family=Lato:wght@400;700&family=Montserrat:wght@400;500;700&family=Poppins:wght@400;500;700&family=Courier+Prime&family=Arial&family=Verdana&family=Georgia&family=Times+New+Roman&display=swap" rel="stylesheet"><style>${viewModeCss}</style></head><body><div id="flowchart-container">${boxesHtml}</div><svg id="arrow-canvas"><defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto-start-reverse" markerUnits="strokeWidth"><path d="M 0 0 L 10 3.5 L 0 7 z" fill="#6b7280" /></marker></defs>${arrowsSvg}</svg><script>${viewModeJs}<\/script></body></html>`; return fullHtml; }
+        function exportView() { try { const htmlContent = generateViewModeHtml(); const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' }); saveAs(blob, 'flowchart_view.html'); } catch (error) { console.error("Error exporting view:", error); alert("Failed to export flowchart view."); } }
+
+        // --- Event Listeners Setup ---
+        function getSpawnCoordinates(elementWidth = 150, elementHeight = 100) { const viewportCenterX = window.innerWidth / 2; const viewportCenterY = window.innerHeight / 2; const containerRect = flowchartContainer.getBoundingClientRect(); const targetCenterX_doc = viewportCenterX + window.scrollX; const targetCenterY_doc = viewportCenterY + window.scrollY; const targetCenterX_rel = targetCenterX_doc - (containerRect.left + window.scrollX); const targetCenterY_rel = targetCenterY_doc - (containerRect.top + window.scrollY); const elementX = Math.max(0, targetCenterX_rel - elementWidth / 2); const elementY = Math.max(0, targetCenterY_rel - elementHeight / 2); return { x: elementX, y: elementY }; }
+        addTextBoxButton.addEventListener('click', () => { const { x, y } = getSpawnCoordinates(150, 100); const newBox = createBox(null, 'text', 'New Text Box', x, y, 150, 100, null, '', 'Georgia, serif', 18, 'center'); selectElement(newBox, 'box'); });
+        addImageBoxButton.addEventListener('click', () => { const { x, y } = getSpawnCoordinates(150, 100); const newBox = createBox(null, 'image', '', x, y, 150, 100); selectElement(newBox, 'box'); showPropertiesModal(newBox); });
+        addFileBoxButton.addEventListener('click', () => { const { x, y } = getSpawnCoordinates(150, 50); const newBox = createBox(null, 'file', '', x, y, 150, 50, '#3b82f6', '', "'Inter', sans-serif", 14, 'center', 'Download'); selectElement(newBox, 'box'); showPropertiesModal(newBox); });
+        addLinkBoxButton.addEventListener('click', () => { const { x, y } = getSpawnCoordinates(150, 50); const newBox = createBox(null, 'link', '', x, y, 150, 50, '#10b981', '', "'Inter', sans-serif", 14, 'center', 'Visit Link'); selectElement(newBox, 'box'); showPropertiesModal(newBox); });
+        addArrowButton.addEventListener('click', () => { const arrowLength = 150; const arrowHeight = 0; const { x: targetCenterX_rel, y: targetCenterY_rel } = getSpawnCoordinates(arrowLength, arrowHeight); const startX = Math.max(0, targetCenterX_rel - arrowLength / 2); const startY = Math.max(0, targetCenterY_rel); const endX = startX + arrowLength; const endY = startY; const midX = (startX + endX) / 2; const midY = (startY + endY) / 2; const controlX = midX; const controlY = midY - 30; const newArrow = createCurvedArrow(null, startX, startY, controlX, controlY, endX, endY); selectElement(newArrow, 'arrow'); });
+        // --- Left Toolbar Listeners ---
+        colorPalette.addEventListener('click', (e) => { if (e.target.classList.contains('color-swatch')) { const newColor = e.target.style.backgroundColor; leftToolbarBgColorInput.value = rgbToHex(newColor); selectedElements.forEach(({element, type}) => { if (type === 'box' && (element.dataset.type === 'text' || element.dataset.type === 'file' || element.dataset.type === 'link') ) { element.style.backgroundColor = newColor; } }); } });
+        leftToolbarBgColorInput.addEventListener('input', (e) => { const newColor = e.target.value; selectedElements.forEach(({element, type}) => { if (type === 'box' && (element.dataset.type === 'text' || element.dataset.type === 'file' || element.dataset.type === 'link') ) { element.style.backgroundColor = newColor; } }); });
+        leftToolbarFontFamilyInput.addEventListener('change', (e) => { const newFontFamily = e.target.value; selectedElements.forEach(({element, type}) => { if (type === 'box' && element.dataset.type === 'text') { element.dataset.fontFamily = newFontFamily; const contentEl = element.querySelector('.box-content'); if (contentEl) contentEl.style.fontFamily = newFontFamily; } }); });
+        leftToolbarFontSizeInput.addEventListener('input', (e) => { const newFontSize = parseInt(e.target.value, 10) || 14; selectedElements.forEach(({element, type}) => { if (type === 'box' && element.dataset.type === 'text') { element.dataset.fontSize = newFontSize; const contentEl = element.querySelector('.box-content'); if (contentEl) contentEl.style.fontSize = `${newFontSize}px`; } }); });
+        leftToolbarArrowColorInput.addEventListener('input', (e) => { const newColor = e.target.value; selectedElements.forEach(({element, type}) => { if (type === 'arrow') { const arrowData = arrows[element.dataset.id]; if (arrowData) { arrowData.color = newColor; arrowData.element.style.stroke = newColor; arrowData.element.dataset.color = newColor; if (arrowData.textElement) { arrowData.textElement.style.fill = newColor; } } } }); });
+        textAlignButtons.addEventListener('click', (e) => { if (e.target.classList.contains('align-button')) { const newAlign = e.target.dataset.align; textAlignButtons.querySelectorAll('.align-button').forEach(btn => btn.classList.remove('active')); e.target.classList.add('active'); selectedElements.forEach(({element, type}) => { if (type === 'box' && element.dataset.type === 'text') { element.dataset.textAlign = newAlign; const contentEl = element.querySelector('.box-content'); if (contentEl) contentEl.style.textAlign = newAlign; } }); } });
+        arrowLabelButtons.addEventListener('click', (e) => { if (e.target.classList.contains('label-button')) { const newLabel = e.target.dataset.label; arrowLabelButtons.querySelectorAll('.label-button').forEach(btn => btn.classList.remove('active')); e.target.classList.add('active'); selectedElements.forEach(({element, type}) => { if (type === 'arrow') { const arrowId = element.dataset.id; const arrowData = arrows[arrowId]; if (arrowData) { arrowData.label = newLabel; arrowData.textElement.textContent = newLabel; updateArrowPath(arrowId); /* Update background size */ } } }); } });
+        // --- Make Start Button Listener ---
+        makeStartButton.addEventListener('click', () => { if (selectedElements.size !== 1) return; const selection = selectedElements.values().next().value; if (selection.type !== 'box') return; const selectedBox = selection.element; const isCurrentlyStart = selectedBox.dataset.startBox === 'true'; Object.values(boxes).forEach(box => delete box.dataset.startBox); if (isCurrentlyStart) { console.log(`Box ${selectedBox.dataset.id} is no longer the start box.`); } else { selectedBox.dataset.startBox = 'true'; console.log(`Box ${selectedBox.dataset.id} set as start box.`); } updateToolbarButtonStates(); });
+        // --- Other Listeners ---
+        saveButton.addEventListener('click', saveData);
+        loadInput.addEventListener('change', loadData);
+        copyButton.addEventListener('click', copySelectedBox);
+        pasteButton.addEventListener('click', pasteBox);
+        deleteButton.addEventListener('click', deleteSelected);
+        exportButton.addEventListener('click', exportView);
+        savePropertiesButton.addEventListener('click', saveProperties);
+        cancelPropertiesButton.addEventListener('click', hidePropertiesModal);
+        modalBackdrop.addEventListener('click', hidePropertiesModal);
+
+        // --- Initial Setup ---
+        const initialBox = createBox(null, 'text', 'Welcome! Arrow label BG added to export.', 50, 100, 150, 100, null, '', 'Georgia, serif', 18, 'center'); // Use new defaults
+        selectElement(initialBox, 'box');
+        updateLeftToolbar(); // Initialize left toolbar state
+
+        // TODO: Refine canvas height/width adjustment (currently uses huge SVG)
+
+    </script>
+
+</body>
+</html>
